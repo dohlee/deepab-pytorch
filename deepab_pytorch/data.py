@@ -39,7 +39,7 @@ class AntibodyLanguageModelDataset(Dataset):
         vh = self._encode_amino_acid_seq(r.vh_seq)
         vl = self._encode_amino_acid_seq(r.vl_seq)
 
-        seq = [0] + vh + [1] + vl + [2]
+        seq = [1] + vh + [2] + vl + [3]
         seq = torch.tensor(seq, dtype=torch.long)
 
         return seq
