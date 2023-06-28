@@ -8,9 +8,11 @@ import random
 
 from einops import rearrange
 
+PAD_TOKEN = 0
+
 
 class BiLSTMEncoder(nn.Module):
-    def __init__(self, input_size=23, d_hidden=64):
+    def __init__(self, input_size=24, d_hidden=64):
         super().__init__()
         self.d_hidden = d_hidden
 
@@ -28,7 +30,7 @@ class BiLSTMEncoder(nn.Module):
 
 
 class LSTMDecoder(nn.Module):
-    def __init__(self, input_size=23, d_hidden=64):
+    def __init__(self, input_size=24, d_hidden=64):
         super().__init__()
 
         self.lstm = nn.LSTM(
@@ -38,7 +40,7 @@ class LSTMDecoder(nn.Module):
             bidirectional=False,  # decoder is not bidirectional
             batch_first=True,
         )
-        self.to_out = nn.Linear(d_hidden, 23)
+        self.to_out = nn.Linear(d_hidden, 24)
 
     def forward(self, x, h, c):
         out, (h, c) = self.lstm(x, (h, c))
@@ -49,11 +51,11 @@ class AntibodyLanguageModel(pl.LightningModule):
     def __init__(self, lr=1e-3, teacher_forcing_ratio=0.5):
         super().__init__()
         self.encoder = BiLSTMEncoder(
-            input_size=23,
+            input_size=24,
             d_hidden=64,
         )
         self.decoder = LSTMDecoder(
-            input_size=23,
+            input_size=24,
             d_hidden=64,
         )
 
@@ -68,7 +70,7 @@ class AntibodyLanguageModel(pl.LightningModule):
 
         # optimization
         self.lr = lr
-        self.criterion = nn.CrossEntropyLoss()
+        self.criterion = nn.CrossEntropyLoss(ignore_index=PAD_TOKEN)
         self.teacher_forcing_ratio = teacher_forcing_ratio
 
     def forward(self, x):
@@ -76,8 +78,8 @@ class AntibodyLanguageModel(pl.LightningModule):
         output, _ = self.encoder(x)
         return output
 
-    def training_step(self, batch, batch_idx):
-        seq = F.one_hot(batch["seq"], num_classes=23).float()  # bsz, L, 23
+    def sample(self, batch, teacher_forcing_ratio):
+        seq = F.one_hot(batch["seq"], num_classes=24).float()  # bsz, L, 24
         L = seq.size(1)
         device = seq.device
 
@@ -87,7 +89,8 @@ class AntibodyLanguageModel(pl.LightningModule):
         #
         # Let's see if using (h, c) from encoder as initial hidden and cell state
         # works better than that. If not, I will just follow the original one.
-        outputs = torch.zeros_like(seq).to(device)  # bsz, L, d_input
+
+        outputs = []  # will be bsz, L, d_input
 
         # get encoder state
         _, (h, c) = self.encoder(seq)
@@ -100,41 +103,65 @@ class AntibodyLanguageModel(pl.LightningModule):
         h = self.proj_h(h)
         c = self.proj_c(c)
 
-        input = seq[:, 0]  # bsz, d_input
+        input = rearrange(seq[:, 0], "b d -> b () d")  # bsz, d_input
+        outputs.append(input)
         for t in range(1, L):
             # decoder expects (bsz, L, d_input) as input, so
-            decoder_out, (h, c) = self.decoder(rearrange(input, "b d -> b () d"), h, c)
+            decoder_out, (h, c) = self.decoder(input, h, c)
             # save output
-            outputs[:, t] = decoder_out.squeeze(1)
+            outputs.append(decoder_out)
 
-            if random.random() < self.teacher_forcing_ratio:
-                input = seq[:, t]  # use ground truth as input
+            if random.random() < teacher_forcing_ratio:
+                input = rearrange(seq[:, t], "b d -> b () d")  # use ground truth as input
             else:
-                input = outputs[:, t]
+                input = decoder_out
+
+        return torch.cat(outputs, dim=1).to(device)
+
+    def training_step(self, batch, batch_idx):
+        outputs = self.sample(batch, self.teacher_forcing_ratio)
 
         # calculate loss
         loss = self.criterion(
-            rearrange(outputs, "b L d -> (b L) d"),
-            rearrange(batch["seq"], "b L -> (b L)"),
+            rearrange(outputs, "b L d -> (b L) d"), rearrange(batch["seq"], "b L -> (b L)")
         )
 
+        acc_mask = (batch["seq"] != PAD_TOKEN).float()
+        acc = torch.sum(
+            (torch.argmax(outputs, dim=-1) == batch["seq"]) * acc_mask
+        ) / torch.sum(acc_mask)
+
+        self.log_dict({"train/loss": loss.item(), "train/accuracy": acc.item()})
         return loss
 
     def validation_step(self, batch, batch_idx):
-        pass
+        outputs = self.sample(batch, 0.0)  # no teacher forcing at validation
+
+        # calculate loss
+        loss = self.criterion(
+            rearrange(outputs, "b L d -> (b L) d"), rearrange(batch["seq"], "b L -> (b L)")
+        )
+
+        acc_mask = (batch["seq"] != PAD_TOKEN).float()
+        acc = torch.sum(
+            (torch.argmax(outputs, dim=-1) == batch["seq"]) * acc_mask
+        ) / torch.sum(acc_mask)
+
+        self.log_dict({"val/loss": loss.item(), "val/accuracy": acc.item()})
 
     def test_step(self, batch, batch_idx):
         pass
 
     def configure_optimizers(self):
         optimizer = optim.Adam(self.parameters(), lr=self.lr)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=2)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer)
 
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
                 "interval": "epoch",
+                "monitor": "val/loss",
             },
         }
 
