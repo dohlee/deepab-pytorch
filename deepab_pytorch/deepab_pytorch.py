@@ -73,6 +73,8 @@ class AntibodyLanguageModel(pl.LightningModule):
         self.criterion = nn.CrossEntropyLoss(ignore_index=PAD_TOKEN)
         self.teacher_forcing_ratio = teacher_forcing_ratio
 
+        self.save_hyperparameters()
+
     def forward(self, x):
         # we only need encoder output when training is over
         output, _ = self.encoder(x)
