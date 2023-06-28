@@ -131,7 +131,12 @@ class AntibodyLanguageModel(pl.LightningModule):
             (torch.argmax(outputs, dim=-1) == batch["seq"]) * acc_mask
         ) / torch.sum(acc_mask)
 
-        self.log_dict({"train/loss": loss.item(), "train/accuracy": acc.item()})
+        self.log_dict(
+            {"train/loss": loss.item(), "train/accuracy": acc.item()},
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+        )
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -147,7 +152,9 @@ class AntibodyLanguageModel(pl.LightningModule):
             (torch.argmax(outputs, dim=-1) == batch["seq"]) * acc_mask
         ) / torch.sum(acc_mask)
 
-        self.log_dict({"val/loss": loss.item(), "val/accuracy": acc.item()})
+        self.log_dict(
+            {"val/loss": loss.item(), "val/accuracy": acc.item()}, prog_bar=True, on_epoch=True
+        )
 
     def test_step(self, batch, batch_idx):
         pass
