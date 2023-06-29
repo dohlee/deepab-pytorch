@@ -5,7 +5,7 @@ import pandas as pd
 import os
 
 from pytorch_lightning.callbacks import LearningRateMonitor
-from deepab_pytorch import AntibodyLanguageModel
+from deepab_pytorch import AntibodyLanguageModel, AntibodyLanguageModelReference
 from deepab_pytorch.data import AntibodyLanguageModelDataModule
 
 
@@ -14,6 +14,9 @@ def parse_argument():
     parser.add_argument(
         "--meta", required=True, help="Metadata file for train/validation data"
     )
+    # parser.add_argument(
+    #     '--model', required=True, choices=['antibodylm', 'antibodylmref'],
+    # )
     parser.add_argument(
         "--val-pct", type=float, default=0.1, help="Proportion of validation data to use."
     )
@@ -54,9 +57,15 @@ def main():
         logger = pl.loggers.WandbLogger(
             project="deepab-pytorch",
             entity="dohlee",
+            config=args,
         )
 
-    lang_model = AntibodyLanguageModel(
+    # if args.model == 'antibodylm':
+    #     lang_model = AntibodyLanguageModel(
+    #         lr=args.learning_rate, teacher_forcing_ratio=args.teacher_forcing_ratio
+    #     )
+    # elif args.model == 'antibodylmref':
+    lang_model = AntibodyLanguageModelReference(
         lr=args.learning_rate, teacher_forcing_ratio=args.teacher_forcing_ratio
     )
 

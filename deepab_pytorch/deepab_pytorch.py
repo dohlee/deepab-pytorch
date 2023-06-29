@@ -8,11 +8,11 @@ import random
 
 from einops import rearrange
 
-PAD_TOKEN = 0
+PAD_TOKEN = 23
 
 
 class BiLSTMEncoder(nn.Module):
-    def __init__(self, input_size=24, d_hidden=64):
+    def __init__(self, input_size=23, d_hidden=64):
         super().__init__()
         self.d_hidden = d_hidden
 
@@ -30,7 +30,7 @@ class BiLSTMEncoder(nn.Module):
 
 
 class LSTMDecoder(nn.Module):
-    def __init__(self, input_size=24, d_hidden=64):
+    def __init__(self, input_size=23, d_hidden=64):
         super().__init__()
 
         self.lstm = nn.LSTM(
@@ -40,22 +40,31 @@ class LSTMDecoder(nn.Module):
             bidirectional=False,  # decoder is not bidirectional
             batch_first=True,
         )
-        self.to_out = nn.Linear(d_hidden, 24)
+        self.to_out = nn.Linear(d_hidden + input_size, 23)
 
-    def forward(self, x, h, c):
-        out, (h, c) = self.lstm(x, (h, c))
-        return self.to_out(out), (h, c)
+    def forward(self, input, h_enc, h, c):
+        x = torch.cat([input, h_enc], dim=-1)
 
+        if h is None and c is None:
+            out, (h, c) = self.lstm(x)
+
+            out = torch.cat([x, out], dim=-1)
+            return self.to_out(out), (h, c)
+        else:
+            out, (h, c) = self.lstm(x, (h, c))
+
+            out = torch.cat([x, out], dim=-1)
+            return self.to_out(out), (h, c)
 
 class AntibodyLanguageModel(pl.LightningModule):
     def __init__(self, lr=1e-3, teacher_forcing_ratio=0.5):
         super().__init__()
         self.encoder = BiLSTMEncoder(
-            input_size=24,
+            input_size=23,
             d_hidden=64,
         )
         self.decoder = LSTMDecoder(
-            input_size=24,
+            input_size=64 + 23,
             d_hidden=64,
         )
 
@@ -82,6 +91,8 @@ class AntibodyLanguageModel(pl.LightningModule):
 
     def sample(self, batch, teacher_forcing_ratio):
         seq = F.one_hot(batch["seq"], num_classes=24).float()  # bsz, L, 24
+        seq = seq[:, :, :-1]  # exclude pad token
+
         L = seq.size(1)
         device = seq.device
 
@@ -98,25 +109,37 @@ class AntibodyLanguageModel(pl.LightningModule):
         _, (h, c) = self.encoder(seq)
         # dimension of h and c is tricky; 2 * num_layers, bsz, d_hidden
 
-        # we need to rearrange it to num_layers, bsz, 2 * d_hidden
-        h = rearrange(h, "(d l) b h -> l b (d h)", d=2)
-        c = rearrange(c, "(d l) b h -> l b (d h)", d=2)
+        # we need to rearrange it to bsz, num_layers, 2 * d_hidden
+        h = rearrange(h, "(d l) b h -> b l (d h)", d=2)
+        c = rearrange(c, "(d l) b h -> b l (d h)", d=2)
         # then project to decoder input size
         h = self.proj_h(h)
         c = self.proj_c(c)
 
-        input = rearrange(seq[:, 0], "b d -> b () d")  # bsz, d_input
+        h_enc = h[:, -1]
+        h_enc = rearrange(h_enc, "b d -> b () d")
+
+        input = seq[:, 0].unsqueeze(1)
         outputs.append(input)
+
+        h_out, c_out = rearrange(h, "b l d -> l b d"), rearrange(c, "b l d -> l b d")
         for t in range(1, L):
-            # decoder expects (bsz, L, d_input) as input, so
-            decoder_out, (h, c) = self.decoder(input, h, c)
+            decoder_out, (h_out, c_out) = self.decoder(input, h_enc, h_out, c_out)
             # save output
             outputs.append(decoder_out)
 
             if random.random() < teacher_forcing_ratio:
-                input = rearrange(seq[:, t], "b d -> b () d")  # use ground truth as input
+                s = seq[:, t]  # use ground truth as input
             else:
-                input = decoder_out
+                # use one-hot encoded predicted output as input
+                # IDEA: use temperature-based sampling here?
+                s = (
+                    F.one_hot(torch.argmax(decoder_out, dim=-1), num_classes=23)
+                    .float()
+                    .squeeze(1)
+                )
+
+            input = rearrange(s, "b d -> b () d")
 
         return torch.cat(outputs, dim=1).to(device)
 
@@ -137,7 +160,7 @@ class AntibodyLanguageModel(pl.LightningModule):
             {"train/loss": loss.item(), "train/accuracy": acc.item()},
             prog_bar=True,
             on_step=True,
-            on_epoch=True,
+            on_epoch=False,
         )
         return loss
 
@@ -175,20 +198,125 @@ class AntibodyLanguageModel(pl.LightningModule):
         }
 
 
-class OneDimensionalResNet(nn.Module):
-    def __init__(self):
+class Residual(nn.Module):
+    def __init__(self, fn):
         super().__init__()
+        self.fn = fn
 
     def forward(self, x):
-        pass
+        return x + self.fn(x)
 
 
-class TwoDimensionalResNet(nn.Module):
-    def __init__(self):
+class ResBlock1D(nn.Module):
+    def __init__(self, channel, kernel_size, stride):
         super().__init__()
 
+        self.layer = nn.Sequential(
+            Residual(
+                nn.Sequential(
+                    nn.Conv1d(
+                        channel, channel, kernel_size, stride, padding="same", bias=False
+                    ),
+                    nn.BatchNorm1d(channel),
+                    nn.ReLU(),
+                    nn.Conv1d(
+                        channel, channel, kernel_size, stride, padding="same", bias=False
+                    ),
+                    nn.BatchNorm1d(channel),
+                )
+            ),
+            nn.ReLU(),
+        )
+
     def forward(self, x):
-        pass
+        return self.layer(x)
+
+
+class ResNet1D(nn.Module):
+    def __init__(self, in_channel, out_channel, kernel_size, n_blocks):
+        super().__init__()
+
+        self.proj = nn.Sequential(
+            nn.Conv1d(in_channel, out_channel, kernel_size, padding="same", bias=False),
+            nn.BatchNorm1d(out_channel),
+            nn.ReLU(),
+        )
+
+        self.layers = nn.ModuleList(
+            [ResBlock1D(out_channel, kernel_size, stride=1) for _ in range(n_blocks)]
+        )
+
+    def forward(self, x):
+        x = self.proj(x)
+        for layer in self.layers:
+            x = layer(x)
+
+        return x
+
+
+class ResBlock2D(nn.Module):
+    def __init__(self, channel, kernel_size, stride, dilation):
+        super().__init__()
+
+        self.layer = nn.Sequential(
+            Residual(
+                nn.Sequential(
+                    nn.Conv2d(
+                        channel,
+                        channel,
+                        kernel_size,
+                        stride,
+                        padding="same",
+                        dilation=dilation,
+                        bias=False,
+                    ),
+                    nn.BatchNorm2d(channel),
+                    nn.ReLU(),
+                    nn.Conv2d(
+                        channel,
+                        channel,
+                        kernel_size,
+                        stride,
+                        padding="same",
+                        dilation=dilation,
+                        bias=False,
+                    ),
+                )
+            ),
+            nn.ReLU(),
+        )
+
+    def forward(self, x):
+        return self.layer(x)
+
+
+class ResNet2D(nn.Module):
+    def __init__(
+        self, in_channel, out_channel, kernel_size, n_blocks, dilation=[1, 2, 4, 8, 16]
+    ):
+        super().__init__()
+
+        self.proj = nn.Sequential(
+            nn.Conv2d(in_channel, out_channel, kernel_size, padding="same", bias=False),
+            nn.BatchNorm2d(out_channel),
+            nn.ReLU(),
+        )
+
+        self.layers = nn.ModuleList(
+            [
+                ResBlock2D(
+                    out_channel, kernel_size, stride=1, dilation=dilation[i % len(dilation)]
+                )
+                for i in range(n_blocks)
+            ]
+        )
+
+    def forward(self, x):
+        x = self.proj(x)
+        for layer in self.layers:
+            x = layer(x)
+
+        return x
 
 
 class DeepAb(pl.LightningModule):

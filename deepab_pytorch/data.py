@@ -4,9 +4,9 @@ import pandas as pd
 
 from torch.utils.data import Dataset, DataLoader
 
-PAD_TOKEN = 0
+PAD_TOKEN = 23
 amino_acids = "ARNDCEQGHILKMFPSTWYV"
-aa2i = {aa: i for i, aa in enumerate(amino_acids, 4)}  # 0=<pad>, 1=<sos>, 2=<sep>, 3=<eos>
+aa2i = {aa: i for i, aa in enumerate(amino_acids, 3)}  # 0=<sos>, 1=<sep>, 2=<eos>, 23=<pad>
 
 
 def collate(data):
@@ -39,14 +39,14 @@ class AntibodyLanguageModelDataset(Dataset):
         vh = self._encode_amino_acid_seq(r.vh_seq)
         vl = self._encode_amino_acid_seq(r.vl_seq)
 
-        seq = [1] + vh + [2] + vl + [3]
+        seq = [0] + vh + [1] + vl + [2]
         seq = torch.tensor(seq, dtype=torch.long)
 
         return seq
 
 
 class AntibodyLanguageModelDataModule(pl.LightningDataModule):
-    def __init__(self, meta, batch_size=8, val_pct=0.1, seed=42):
+    def __init__(self, meta, batch_size=128, val_pct=0.1, seed=42):
         super().__init__()
         self.meta_df = pd.read_csv(meta)
         self.batch_size = batch_size
