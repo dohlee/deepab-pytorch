@@ -1,27 +1,44 @@
 import torch
+import torch.nn.functional as F
 import pytorch_lightning as pl
 import pandas as pd
-
+from einops import rearrange
 from torch.utils.data import Dataset, DataLoader
 
+SOS_TOKEN = 20
+SEP_TOKEN = 21
+EOS_TOKEN = 22
 PAD_TOKEN = 23
 amino_acids = "ARNDCEQGHILKMFPSTWYV"
-aa2i = {aa: i for i, aa in enumerate(amino_acids, 3)}  # 0=<sos>, 1=<sep>, 2=<eos>, 23=<pad>
+aa2i = {aa: i for i, aa in enumerate(amino_acids)}  # 20=<sos>, 21=<sep>, 22=<eos>, 23=<pad>
 
 
 def collate(data):
-    max_len = max(len(seq) for seq in data)
+    max_len_for_resnet = max(len(vh) + len(vl) for vh, vl in data)
+    max_len_for_lm = max_len_for_resnet + 3
 
     batch = {}
-    seq = torch.full((len(data), max_len), PAD_TOKEN, dtype=torch.long)
-    for i, d in enumerate(data):
-        seq[i, : len(d)] = d
+    # tokenized sequence for language modeling
+    seq_lm = torch.full((len(data), max_len_for_lm), PAD_TOKEN, dtype=torch.long)
+    for i, (vh, vl) in enumerate(data):
+        seq_tokenized = [SOS_TOKEN] + vh + [SEP_TOKEN] + vl + [EOS_TOKEN]
+        seq_tokenized = torch.tensor(seq_tokenized, dtype=torch.long)
+        seq_lm[i, : len(seq_tokenized)] = seq_tokenized
+    batch["seq_lm"] = seq_lm
 
-    batch["seq"] = seq
+    # channelized sequence for ResNet input
+    seq_onehot_resnet = torch.zeros((len(data), max_len_for_resnet, 21), dtype=torch.float)
+    for i, (vh, vl) in enumerate(data):
+        seq = torch.tensor(vh + vl, dtype=torch.long)
+        seq_onehot = F.one_hot(seq, num_classes=20).float()
+        seq_onehot_resnet[i, : len(seq_onehot), :20] = seq_onehot
+        seq_onehot_resnet[i, len(vh), 20] = 1.0  # delimiter channel marks the end of VH
+    batch["seq_onehot_resnet"] = rearrange(seq_onehot_resnet, "b l c -> b c l")
+
     return batch
 
 
-class AntibodyLanguageModelDataset(Dataset):
+class DeepAbDataset(Dataset):
     def __init__(self, meta_df):
         super().__init__()
         self.meta_df = meta_df
@@ -39,13 +56,13 @@ class AntibodyLanguageModelDataset(Dataset):
         vh = self._encode_amino_acid_seq(r.vh_seq)
         vl = self._encode_amino_acid_seq(r.vl_seq)
 
-        seq = [0] + vh + [1] + vl + [2]
-        seq = torch.tensor(seq, dtype=torch.long)
+        # seq = [20] + vh + [21] + vl + [22]
+        # seq = torch.tensor(seq, dtype=torch.long)
 
-        return seq
+        return vh, vl
 
 
-class AntibodyLanguageModelDataModule(pl.LightningDataModule):
+class DeepAbDataModule(pl.LightningDataModule):
     def __init__(self, meta, batch_size=128, val_pct=0.1, seed=42):
         super().__init__()
         self.meta_df = pd.read_csv(meta)
@@ -63,8 +80,8 @@ class AntibodyLanguageModelDataModule(pl.LightningDataModule):
             self.val_df = self.meta_df.iloc[n_train:]
 
     def setup(self, stage=None):
-        self.train_set = AntibodyLanguageModelDataset(self.train_df)
-        self.val_set = AntibodyLanguageModelDataset(self.val_df) if self.validate else None
+        self.train_set = DeepAbDataset(self.train_df)
+        self.val_set = DeepAbDataset(self.val_df) if self.validate else None
 
     def train_dataloader(self):
         return DataLoader(

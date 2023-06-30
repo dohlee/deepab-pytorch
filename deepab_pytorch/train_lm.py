@@ -5,7 +5,7 @@ import pandas as pd
 import os
 
 from pytorch_lightning.callbacks import LearningRateMonitor
-from deepab_pytorch import AntibodyLanguageModel, AntibodyLanguageModelReference
+from deepab_pytorch import AntibodyLanguageModel
 from deepab_pytorch.data import AntibodyLanguageModelDataModule
 
 
@@ -13,6 +13,12 @@ def parse_argument():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--meta", required=True, help="Metadata file for train/validation data"
+    )
+    parser.add_argument(
+        "--d-enc", type=int, default=64, help="Dimension of encoder hidden states."
+    )
+    parser.add_argument(
+        "--d-dec", type=int, default=64, help="Dimension of decoder hidden states."
     )
     # parser.add_argument(
     #     '--model', required=True, choices=['antibodylm', 'antibodylmref'],
@@ -26,6 +32,9 @@ def parse_argument():
     )
     parser.add_argument(
         "-l", "--learning-rate", type=float, default=0.01, help="Learning rate"
+    )
+    parser.add_argument(
+        "-g", "--gradient-clip-val", type=float, default=1.0, help="Gradient clipping value."
     )
     parser.add_argument(
         "-t",
@@ -65,7 +74,7 @@ def main():
     #         lr=args.learning_rate, teacher_forcing_ratio=args.teacher_forcing_ratio
     #     )
     # elif args.model == 'antibodylmref':
-    lang_model = AntibodyLanguageModelReference(
+    lang_model = AntibodyLanguageModel(
         lr=args.learning_rate, teacher_forcing_ratio=args.teacher_forcing_ratio
     )
 
@@ -81,7 +90,7 @@ def main():
         accelerator="gpu",
         devices=1,
         max_epochs=args.epochs,
-        gradient_clip_val=1.0,
+        gradient_clip_val=args.gradient_clip_val,
         callbacks=callbacks,
         logger=logger,
         check_val_every_n_epoch=1,

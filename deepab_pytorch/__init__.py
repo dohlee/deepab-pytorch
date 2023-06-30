@@ -1,1 +1,1 @@
-from deepab_pytorch.deepab_pytorch import AntibodyLanguageModel, AntibodyLanguageModelReference
+from deepab_pytorch.deepab_pytorch import AntibodyLanguageModel, DeepAb

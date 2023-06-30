@@ -10,8 +10,12 @@ def test_AntibodyLanguageModel_init():
 
 
 def test_AntibodyLanguageModel_forward():
-    bsz, max_len, d_input = 3, 32, 24
-    x = torch.randn(bsz, max_len, d_input)
+    bsz, max_len = 3, 32
+    x = torch.randint(0, 20, (bsz, max_len + 3))
+
+    x[:, 0] = 20
+    x[:, 10] = 21
+    x[:, 19] = 22
 
     model = AntibodyLanguageModel()
     out = model(x)
@@ -21,8 +25,8 @@ def test_AntibodyLanguageModel_forward():
 def test_AntibodyLanguageModel_training_step():
     bsz, max_len = 3, 32
 
-    seq = torch.randint(0, 24, (bsz, max_len))
-    batch = {"seq": seq}
+    seq = torch.randint(0, 24, (bsz, max_len + 3))
+    batch = {"seq_lm": seq}
 
     model = AntibodyLanguageModel()
     loss = model.training_step(batch, 0)
