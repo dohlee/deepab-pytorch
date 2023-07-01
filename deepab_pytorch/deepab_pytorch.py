@@ -488,3 +488,13 @@ class DeepAb(pl.LightningModule):
             out[target] = self.heads[target](res2d_emb)
 
         return out
+
+    def training_step(self, batch, batch_idx):
+        seq_lm, seq_onehot_resnet, targets = batch
+
+        preds = self(seq_lm, seq_onehot_resnet)
+        loss = 0
+        for target in self.targets:
+            loss += F.cross_entropy(preds[target], targets[target].long())
+        self.log("train_loss", loss)
+        return loss

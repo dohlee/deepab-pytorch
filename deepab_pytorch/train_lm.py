@@ -6,7 +6,7 @@ import os
 
 from pytorch_lightning.callbacks import LearningRateMonitor
 from deepab_pytorch import AntibodyLanguageModel
-from deepab_pytorch.data import AntibodyLanguageModelDataModule
+from deepab_pytorch.data import DeepAbDataModuleForLanguageModeling
 
 
 def parse_argument():
@@ -78,7 +78,7 @@ def main():
         lr=args.learning_rate, teacher_forcing_ratio=args.teacher_forcing_ratio
     )
 
-    dm = AntibodyLanguageModelDataModule(
+    dm = DeepAbDataModuleForLanguageModeling(
         args.meta, batch_size=args.bsz, val_pct=args.val_pct, seed=args.seed
     )
 
