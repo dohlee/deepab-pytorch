@@ -202,15 +202,14 @@ class AntibodyLanguageModel(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = optim.Adam(self.parameters(), lr=self.lr)
-        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer)
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.7)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer)
 
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
                 "interval": "epoch",
-                # "monitor": "val/loss",
+                "monitor": "val/loss",
             },
         }
 
@@ -350,7 +349,7 @@ class CrissCrossAttention(nn.Module):
 
         self.to_q = nn.Conv2d(channel, channel // reduction_factor, kernel_size=1)
         self.to_k = nn.Conv2d(channel, channel // reduction_factor, kernel_size=1)
-        self.to_v = nn.Conv2d(channel, channel // reduction_factor, kernel_size=1)
+        self.to_v = nn.Conv2d(channel, channel, kernel_size=1)
         self.gamma = nn.Parameter(torch.tensor(0.0))
 
     def forward(self, x):

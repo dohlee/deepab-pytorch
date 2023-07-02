@@ -21,6 +21,11 @@ from deepab_pytorch import DeepAb
 model = DeepAb()
 ```
 
+## Testing
+```bash
+pytest -vs --disable-warnings
+```
+
 ## Citation
 ```bibtex
 @article{ruffolo2022antibody,

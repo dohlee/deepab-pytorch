@@ -11,12 +11,12 @@ def test_DeepAb_init():
 
 def test_DeepAb_shape():
     # smaller parameters
-    res1d_out_channel = 8
+    res1d_out_channel = 32
     res1d_kernel_size = 17
     res1d_n_blocks = 2
-    res2d_out_channel = 16
+    res2d_out_channel = 64
     res2d_kernel_size = 5
-    res2d_n_blocks = 5
+    res2d_n_blocks = 3
     n_target_bins = 37
     lm_ckpt = None  # for debug
 
