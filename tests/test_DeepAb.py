@@ -43,5 +43,5 @@ def test_DeepAb_shape():
     out = model(seq_lm, seq_onehot_resnet)
 
     assert len(out) == 6
-    for target in ["ca_dist", "cb_dist", "no_dist", "omega", "theta", "phi"]:
+    for target in ["d_ca", "d_cb", "d_no", "omega", "theta", "phi"]:
         assert out[target].shape == (bsz, seq_len, seq_len, n_target_bins)
