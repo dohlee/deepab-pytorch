@@ -5,10 +5,13 @@ import pytorch_lightning as pl
 
 import torch.nn.functional as F
 import random
+import wandb
 
 from torch import einsum
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
+
+from deepab_pytorch.loss import FocalLoss
 
 PAD_TOKEN = 23
 
@@ -419,15 +422,19 @@ class DeepAb(pl.LightningModule):
         res2d_kernel_size=5,
         res2d_n_blocks=25,
         n_target_bins=37,
+        lr=1e-2,
         lm_ckpt=None,
     ):
         super().__init__()
-        self.language_model = AntibodyLanguageModel(
-            d_enc=antibody_lm_d_enc,
-        )
+        self.language_model = AntibodyLanguageModel(d_enc=antibody_lm_d_enc)
         if lm_ckpt is not None:
+            ckpt = torch.load(lm_ckpt)
+
             # attach pretrained antibody-LM weights
-            self.language_model.load_state_dict(torch.load(lm_ckpt))
+            if "pytorch-lightning_version" in ckpt:
+                self.language_model.load_state_dict(ckpt["state_dict"])
+            else:
+                self.language_model.load_state_dict(ckpt)
 
         # define ResNets
         self.resnet1d = ResNet1D(21, res1d_out_channel, res1d_kernel_size, res1d_n_blocks)
@@ -442,7 +449,7 @@ class DeepAb(pl.LightningModule):
         )
 
         # prediction heads
-        self.targets = ["ca_dist", "cb_dist", "no_dist", "omega", "theta", "phi"]
+        self.targets = ["d_ca", "d_cb", "d_no", "omega", "theta", "phi"]
         self.heads = nn.ModuleDict()
 
         for target in self.targets:
@@ -450,21 +457,24 @@ class DeepAb(pl.LightningModule):
                 nn.Conv2d(res2d_out_channel, n_target_bins, res2d_kernel_size, padding="same"),
                 RecurrentCrissCrossAttention(n_target_bins, n_target_bins // 4, kernel_size=3),
                 # symmetry is enforced for d_ca, d_cb and omega
-                Symmetrization()
-                if target in ["ca_dist", "cb_dist", "omega"]
-                else nn.Identity(),
+                Symmetrization() if target in ["d_ca", "d_cb", "omega"] else nn.Identity(),
                 Rearrange("b c h w -> b h w c"),
             )
+
+        # optimization
+        self.criterion = FocalLoss(gamma=2.0, reduction="none")
+        self.lr = lr
 
     def forward(self, seq_lm, seq_onehot_resnet):
         # seq_lm: (batch_size, seq_len + 3)
         # seq_onehot_resnet: (batch_size, 21, seq_len)
         seq_len = seq_onehot_resnet.shape[-1]
 
-        # get language model embeddings
+        # get language model embeddings without gradients
         with torch.no_grad():
             lm_emb = self.language_model(seq_lm)  # (batch_size, seq_len, 128)
-        lm_emb = rearrange(lm_emb, "b l c -> b c l")  # (batch_size, 128, seq_len)
+            lm_emb = rearrange(lm_emb, "b l c -> b c l")  # (batch_size, 128, seq_len)
+            lm_emb = lm_emb.to(seq_onehot_resnet.device)
 
         # get resnet1d embeddings
         res1d_emb = self.resnet1d(seq_onehot_resnet)  # (batch_size, 64, seq_len)
@@ -484,16 +494,84 @@ class DeepAb(pl.LightningModule):
 
         out = {}
         for target in self.targets:
+            # (batch_size, seq_len, seq_len, n_target_bins)
             out[target] = self.heads[target](res2d_emb)
 
         return out
 
     def training_step(self, batch, batch_idx):
-        seq_lm, seq_onehot_resnet, targets = batch
+        seq_lm = batch["seq_lm"]
+        seq_onehot_resnet = batch["seq_onehot_resnet"]
 
         preds = self(seq_lm, seq_onehot_resnet)
         loss = 0
-        for target in self.targets:
-            loss += F.cross_entropy(preds[target], targets[target].long())
-        self.log("train_loss", loss)
+
+        targets = batch["target"]
+        loss_mask = batch["loss_mask"]
+        for t in self.targets:
+            # preds[t]: (batch_size, seq_len, seq_len, n_target_bins)
+            # targets[t]: (batch_size, seq_len, seq_len)
+            # loss_mask[t]: (batch_size, seq_len, seq_len)
+            loss_unmasked = self.criterion(preds[t], targets[t].long()).squeeze(-1)
+            loss += (loss_unmasked * loss_mask[t]).sum() / loss_mask[t].sum()
+
+        self.log("train/loss", loss, prog_bar=True, on_step=True)
+
+        # log example predictions and targets as image
+        if batch_idx % 25 == 0 and isinstance(self.logger, pl.loggers.WandbLogger):
+            pred_img = []
+            for t in self.targets:
+                pred = preds[t][0].argmax(dim=-1).float()
+                pred_img.append(pred)
+            pred_img = torch.cat(pred_img, dim=1)
+
+            target_img = []
+            for t in self.targets:
+                target = targets[t][0].float()
+                target_img.append(target)
+            target_img = torch.cat(target_img, dim=1)
+
+            self.logger.experiment.log(
+                {
+                    "example": [
+                        wandb.Image(
+                            pred_img,
+                            caption="Prediction (d_ca, d_cb, d_no, omega, theta, phi)",
+                        ),
+                        wandb.Image(
+                            target_img, caption="Target (d_ca, d_cb, d_no, omega, theta, phi)"
+                        ),
+                    ]
+                }
+            )
+
         return loss
+
+    def val_step(self, batch):
+        seq_lm = batch["seq_lm"]
+        seq_onehot_resnet = batch["seq_onehot_resnet"]
+
+        preds = self(seq_lm, seq_onehot_resnet)
+        loss = 0
+
+        targets = batch["target"]
+        loss_mask = batch["loss_mask"]
+        for t in self.targets:
+            loss_unmasked = self.criterion(preds[t], targets[t].long()).squeeze(-1)
+            loss += (loss_unmasked * loss_mask[t]).sum() / loss_mask[t].sum()
+
+        self.log("val/loss", loss, prog_bar=True, on_epoch=True)
+
+        return loss
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer)
+
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": "val/loss",
+            },
+        }
