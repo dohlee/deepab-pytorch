@@ -547,7 +547,7 @@ class DeepAb(pl.LightningModule):
 
         return loss
 
-    def val_step(self, batch):
+    def validation_step(self, batch, batch_idx):
         seq_lm = batch["seq_lm"]
         seq_onehot_resnet = batch["seq_onehot_resnet"]
 
