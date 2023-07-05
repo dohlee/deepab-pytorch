@@ -66,6 +66,11 @@ for target in ['d_ca', 'd_cb', 'd_no', 'omega', 'theta', 'phi']:
     assert out[target].shape == (bsz, seq_len, seq_len, n_target_bins)
 ```
 
+## Reproduction status
+
+Reproduction is currently ongoing.
+Live training metrics can be found [here](https://api.wandb.ai/links/dohlee/8y2ko0nn).
+
 ## Testing
 ```bash
 pytest -vs --disable-warnings
