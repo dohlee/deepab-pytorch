@@ -27,7 +27,7 @@ def parse_argument():
     )
     parser.add_argument("-b", "--bsz", type=int, default=128, help="Batch size")
     parser.add_argument(
-        "-e", "--epochs", type=int, default=5, help="Number of epochs to train"
+        "-e", "--epochs", type=int, default=50, help="Number of epochs to train"
     )
     parser.add_argument(
         "-l", "--learning-rate", type=float, default=0.01, help="Learning rate"
