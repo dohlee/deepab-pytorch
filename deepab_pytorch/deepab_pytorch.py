@@ -517,8 +517,25 @@ class DeepAb(pl.LightningModule):
 
         self.log("train/loss", loss, prog_bar=True, on_step=True)
 
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        seq_lm = batch["seq_lm"]
+        seq_onehot_resnet = batch["seq_onehot_resnet"]
+
+        preds = self(seq_lm, seq_onehot_resnet)
+        loss = 0
+
+        targets = batch["target"]
+        loss_mask = batch["loss_mask"]
+        for t in self.targets:
+            loss_unmasked = self.criterion(preds[t], targets[t].long()).squeeze(-1)
+            loss += (loss_unmasked * loss_mask[t]).sum() / loss_mask[t].sum()
+
+        self.log("val/loss", loss, prog_bar=True, on_epoch=True)
+
         # log example predictions and targets as image
-        if batch_idx % 25 == 0 and isinstance(self.logger, pl.loggers.WandbLogger):
+        if batch_idx == 0 and isinstance(self.logger, pl.loggers.WandbLogger):
             pred_img = []
             for t in self.targets:
                 pred = preds[t][0].argmax(dim=-1).float()
@@ -544,23 +561,6 @@ class DeepAb(pl.LightningModule):
                     ]
                 }
             )
-
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        seq_lm = batch["seq_lm"]
-        seq_onehot_resnet = batch["seq_onehot_resnet"]
-
-        preds = self(seq_lm, seq_onehot_resnet)
-        loss = 0
-
-        targets = batch["target"]
-        loss_mask = batch["loss_mask"]
-        for t in self.targets:
-            loss_unmasked = self.criterion(preds[t], targets[t].long()).squeeze(-1)
-            loss += (loss_unmasked * loss_mask[t]).sum() / loss_mask[t].sum()
-
-        self.log("val/loss", loss, prog_bar=True, on_epoch=True)
 
         return loss
 
