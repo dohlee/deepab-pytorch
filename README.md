@@ -71,6 +71,12 @@ for target in ['d_ca', 'd_cb', 'd_no', 'omega', 'theta', 'phi']:
 Reproduction is currently ongoing.
 Live training metrics can be found [here](https://api.wandb.ai/links/dohlee/8y2ko0nn).
 
+Predicted inter-residue geometries are visualized as follows.
+Each of the six 2D matrices represents (1) distance between Ca atoms, (2) distance between Cb atoms, (3) distance between N-O atoms, (4) Ca-Cb-Cb'-Ca' dihedrals, (5) N-Ca-Cb-Cb' dihedrals, (6) planar angles between Ca-Cb-Cb' atoms, respectively.
+
+![img](img/training_example.gif)
+
+
 ## Testing
 ```bash
 pytest -vs --disable-warnings
