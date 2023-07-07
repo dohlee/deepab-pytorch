@@ -74,6 +74,10 @@ Live training metrics can be found [here](https://api.wandb.ai/links/dohlee/8y2k
 Predicted inter-residue geometries are visualized as follows.
 Each of the six 2D matrices represents (1) distance between Ca atoms, (2) distance between Cb atoms, (3) distance between N-O atoms, (4) Ca-Cb-Cb'-Ca' dihedrals, (5) N-Ca-Cb-Cb' dihedrals, (6) planar angles between Ca-Cb-Cb' atoms, respectively.
 
+**Target**
+![img](img/deepab_validation_target.png)
+
+**See how prediction improves as training proceeds**
 ![img](img/training_example.gif)
 
 
