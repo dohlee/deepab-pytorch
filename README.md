@@ -68,7 +68,8 @@ for target in ['d_ca', 'd_cb', 'd_no', 'omega', 'theta', 'phi']:
 
 ## Reproduction status
 
-![img](img/log.png)
+<center><img src='img/log.png' width='50%'></center>
+
 Training logs can be found [here](https://api.wandb.ai/links/dohlee/8y2ko0nn).
 
 Predicted inter-residue geometries are visualized as follows.
