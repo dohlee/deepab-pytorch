@@ -68,9 +68,9 @@ def collate_for_structure_prediction(data):
 
         target[k] = trg
         loss_mask[k] = lm
-    
-    batch['target'] = target
-    batch['loss_mask'] = loss_mask
+
+    batch["target"] = target
+    batch["loss_mask"] = loss_mask
 
     return batch
 
