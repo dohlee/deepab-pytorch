@@ -161,11 +161,13 @@ class DeepAbDatasetForStructurePrediction(Dataset):
         return np.digitize(target, thresholds)
 
     def _bin_dihedral_target(self, target):
+        # -pi ~ pi
         interval_size = 2 * np.pi / self.n_target_bins
-        thresholds = torch.arange(1, self.n_target_bins) * interval_size
+        thresholds = torch.arange(1, self.n_target_bins) * interval_size - np.pi
         return np.digitize(target, thresholds)
 
     def _bin_planar_target(self, target):
+        # 0 ~ pi
         interval_size = np.pi / self.n_target_bins
         thresholds = torch.arange(1, self.n_target_bins) * interval_size
         return np.digitize(target, thresholds)

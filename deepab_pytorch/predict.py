@@ -42,11 +42,12 @@ def unbin_dist_target(mat, interval_size=0.5):
     # mat: (L, L, n_target_bins)
     n_target_bins = mat.shape[-1]
 
-    bin_centers = np.arange(n_target_bins) * interval_size + interval_size / 2.0
-    bin_centers = bin_centers.reshape(1, 1, -1)
+    midpoints = np.arange(n_target_bins) * interval_size + interval_size / 2.0
+    # midpoints = midpoints.reshape(1, 1, -1)
 
     mask = mat.argmax(axis=-1) != n_target_bins - 1
-    return (mat * bin_centers).sum(axis=-1), mask
+    # return (mat * midpoints).sum(axis=-1), mask
+    return midpoints[mat.argmax(axis=-1)], mask
 
 
 def unbin_dihedral_target(mat):
@@ -54,10 +55,11 @@ def unbin_dihedral_target(mat):
     n_target_bins = mat.shape[-1]
     interval_size = 2 * np.pi / n_target_bins
 
-    bin_centers = np.arange(n_target_bins) * interval_size + interval_size / 2.0
-    bin_centers = bin_centers.reshape(1, 1, -1)
+    midpoints = np.arange(n_target_bins) * interval_size + interval_size / 2.0
+    # midpoints = midpoints.reshape(1, 1, -1)
 
-    return (mat * bin_centers).sum(axis=-1)
+    # return (mat * midpoints).sum(axis=-1)
+    return midpoints[mat.argmax(axis=-1)]
 
 
 def unbin_planar_target(mat):
@@ -65,10 +67,11 @@ def unbin_planar_target(mat):
     n_target_bins = mat.shape[-1]
     interval_size = np.pi / n_target_bins
 
-    bin_centers = np.arange(n_target_bins) * interval_size + interval_size / 2.0
-    bin_centers = bin_centers.reshape(1, 1, -1)
+    midpoints = np.arange(n_target_bins) * interval_size + interval_size / 2.0
+    # midpoints = midpoints.reshape(1, 1, -1)
 
-    return (mat * bin_centers).sum(axis=-1)
+    # return (mat * midpoints).sum(axis=-1)
+    return midpoints[mat.argmax(axis=-1)]
 
 
 def main():
@@ -77,7 +80,6 @@ def main():
 
     model = DeepAb()
     model.load_state_dict(torch.load(args.ckpt)["state_dict"])
-    model.eval()
 
     # prepare data
     vh, vl = encode_amino_acid_seq(args.vh), encode_amino_acid_seq(args.vl)
@@ -93,6 +95,7 @@ def main():
     seq_onehot_resnet = rearrange(seq_onehot_resnet, "l c -> () c l")
 
     # predict and save
+    model.eval()
     with torch.no_grad():
         out = model(seq_lm, seq_onehot_resnet)
     torch.save(out, args.out_geometry)
