@@ -16,5 +16,6 @@ lightning_logs/
 
 **/*.ckpt
 *.pt
+**/*.pdb
 
 .vscode/
