@@ -66,9 +66,22 @@ for target in ['d_ca', 'd_cb', 'd_no', 'omega', 'theta', 'phi']:
     assert out[target].shape == (bsz, seq_len, seq_len, n_target_bins)
 ```
 
+**Predicting unrelaxed antibody structure**
+```bash
+$ python -m deepab_pytorch.predict \
+  --ckpt [CHECKPOINT_PATH] \
+  --vh [VH_SEQ] \
+  --vl [VL_SEQ] \
+  --out-geometry output_geometry.pt \ # .pt file containing inter-residue geometry
+  --out-pdb output.pdb
+```
+We get a coarse-grained structure prediction as below, which should be relaxed using Rosetta in the following step.
+
+<p align="center"><img src='img/coarse_grained_prediction.png' width='70%'></p>
+
 ## Reproduction status
 
-<center><img src='img/log.v2.png' width='50%'></center>
+<p align="center"><img src='img/log.v2.png' width='50%'></p>
 
 Training logs can be found [here](https://api.wandb.ai/links/dohlee/8y2ko0nn).
 
